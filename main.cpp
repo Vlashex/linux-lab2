@@ -5,7 +5,7 @@ int main() {
     std::cout << std::unitbuf;
 
     std::string input;
-    if (std::getline(std::cin, input)) {
+    while (std::getline(std::cin, input)) {
         std::cout << input << '\n';
     }
 
