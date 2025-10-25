@@ -4,6 +4,35 @@
 #include <vector>
 #include <cstdlib>
 
+static bool handle_echo(const std::string& input) {
+    if (input.rfind("echo", 0) != 0) {
+        return false;
+    }
+
+    std::string payload = input.substr(4);
+
+    while (!payload.empty() && payload.front() == ' ') {
+        payload.erase(payload.begin());
+    }
+
+    if (!payload.empty()) {
+        const char first = payload.front();
+        const char last  = payload.back();
+
+        if ((first == '"' && last == '"') ||
+            (first == '\'' && last == '\'')) {
+            if (payload.size() >= 2) {
+                payload = payload.substr(1, payload.size() - 2);
+            } else {
+                payload.clear();
+            }
+        }
+    }
+
+    std::cout << payload << '\n';
+    return true;
+}
+
 int main() {
     std::cout << std::unitbuf;
     std::cerr << std::unitbuf;
@@ -31,6 +60,11 @@ int main() {
 
         if (input == "\\q") {
             break;
+        }
+
+        if (handle_echo(input)) {
+            std::cerr << "$ ";
+            continue;
         }
 
         std::cout << input << '\n';
