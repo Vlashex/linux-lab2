@@ -33,6 +33,22 @@ static bool handle_echo(const std::string& input) {
     return true;
 }
 
+static bool is_known_command(const std::string& input) {
+    if (input.empty()) {
+        return true;
+    }
+
+    if (input == "\\q") {
+        return true;
+    }
+
+    if (input.rfind("echo", 0) == 0) {
+        return true;
+    }
+
+    return false;
+}
+
 int main() {
     std::cout << std::unitbuf;
     std::cerr << std::unitbuf;
@@ -58,6 +74,12 @@ int main() {
             history_stream.flush();
         }
 
+        if (!is_known_command(input)) {
+            std::cerr << "Unknown command: " << input << std::endl;
+            std::cerr << "$ ";
+            continue;
+        }
+
         if (input == "\\q") {
             break;
         }
@@ -67,7 +89,10 @@ int main() {
             continue;
         }
 
-        std::cout << input << '\n';
+        if (!input.empty()) {
+            std::cout << input << '\n';
+        }
+
         std::cerr << "$ ";
     }
 
