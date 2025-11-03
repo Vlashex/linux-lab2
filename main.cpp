@@ -33,6 +33,47 @@ static bool handle_echo(const std::string& input) {
     return true;
 }
 
+static bool handle_env(const std::string& input) {
+    if (input.rfind("\\e", 0) != 0) {
+        return false;
+    }
+
+    std::size_t pos = 2;
+    while (pos < input.size() && input[pos] == ' ') {
+        ++pos;
+    }
+
+    if (pos >= input.size()) {
+        std::cout << "Usage: \\e $VARIABLE" << '\n';
+        return true;
+    }
+
+    std::string variable_name = input.substr(pos);
+    if (!variable_name.empty() && variable_name.front() == '$') {
+        variable_name.erase(variable_name.begin());
+    }
+
+    const char* env_value = std::getenv(variable_name.c_str());
+    if (!env_value) {
+        std::cout << "Environment variable '" << variable_name
+                  << "' not found" << '\n';
+        return true;
+    }
+
+    const std::string value(env_value);
+    std::size_t start = 0;
+    std::size_t end = value.find(':');
+
+    while (end != std::string::npos) {
+        std::cout << value.substr(start, end - start) << '\n';
+        start = end + 1;
+        end = value.find(':', start);
+    }
+
+    std::cout << value.substr(start) << '\n';
+    return true;
+}
+
 static bool is_known_command(const std::string& input) {
     if (input.empty()) {
         return true;
@@ -43,6 +84,10 @@ static bool is_known_command(const std::string& input) {
     }
 
     if (input.rfind("echo", 0) == 0) {
+        return true;
+    }
+
+    if (input.rfind("\\e", 0) == 0) {
         return true;
     }
 
@@ -85,6 +130,11 @@ int main() {
         }
 
         if (handle_echo(input)) {
+            std::cerr << "$ ";
+            continue;
+        }
+
+        if (handle_env(input)) {
             std::cerr << "$ ";
             continue;
         }
