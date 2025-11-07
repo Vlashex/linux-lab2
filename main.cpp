@@ -3,6 +3,10 @@
 #include <string>
 #include <vector>
 #include <cstdlib>
+#include <sstream>
+
+#include <unistd.h>
+#include <sys/wait.h>
 
 static bool handle_echo(const std::string& input) {
     if (input.rfind("echo", 0) != 0) {
@@ -74,24 +78,41 @@ static bool handle_env(const std::string& input) {
     return true;
 }
 
-static bool is_known_command(const std::string& input) {
-    if (input.empty()) {
-        return true;
+static void execute_external(const std::string& input) {
+    std::vector<std::string> args;
+    std::stringstream stream(input);
+    std::string token;
+
+    while (stream >> token) {
+        args.push_back(token);
     }
 
-    if (input == "\\q") {
-        return true;
+    if (args.empty()) {
+        return;
     }
 
-    if (input.rfind("echo", 0) == 0) {
-        return true;
+    pid_t pid = ::fork();
+    if (pid == 0) {
+        std::vector<char*> argv;
+        argv.reserve(args.size() + 1);
+
+        for (auto& argument : args) {
+            argv.push_back(const_cast<char*>(argument.c_str()));
+        }
+        argv.push_back(nullptr);
+
+        ::execvp(argv[0], argv.data());
+
+        std::cout << input << ": command not found\n";
+        ::_exit(1);
     }
 
-    if (input.rfind("\\e", 0) == 0) {
-        return true;
+    if (pid > 0) {
+        int status = 0;
+        ::waitpid(pid, &status, 0);
+    } else {
+        std::cerr << "Failed to create process" << std::endl;
     }
-
-    return false;
 }
 
 int main() {
@@ -119,14 +140,13 @@ int main() {
             history_stream.flush();
         }
 
-        if (!is_known_command(input)) {
-            std::cerr << "Unknown command: " << input << std::endl;
-            std::cerr << "$ ";
-            continue;
-        }
-
         if (input == "\\q") {
             break;
+        }
+
+        if (input.empty()) {
+            std::cerr << "$ ";
+            continue;
         }
 
         if (handle_echo(input)) {
@@ -139,10 +159,7 @@ int main() {
             continue;
         }
 
-        if (!input.empty()) {
-            std::cout << input << '\n';
-        }
-
+        execute_external(input);
         std::cerr << "$ ";
     }
 
