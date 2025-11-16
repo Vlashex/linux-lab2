@@ -42,6 +42,134 @@ private:
 
 volatile sig_atomic_t ShellSignalManager::sighup_flag_ = 0;
 
+class PartitionTableAnalyzer {
+public:
+    static void list_partitions_mbr(const std::string& disk_path) {
+        int fd = ::open(disk_path.c_str(), O_RDONLY);
+        if (fd == -1) {
+            std::cout << "Cannot open device: " << disk_path
+                      << " (errno: " << errno << ")" << std::endl;
+            std::perror("open");
+            return;
+        }
+
+        unsigned char buffer[512];
+        const ssize_t bytes_read = ::read(fd, buffer, sizeof(buffer));
+        ::close(fd);
+
+        if (bytes_read != static_cast<ssize_t>(sizeof(buffer))) {
+            std::cerr << "Error reading MBR from: " << disk_path
+                      << " (read " << bytes_read << " bytes)" << std::endl;
+            return;
+        }
+
+        if (buffer[510] != 0x55 || buffer[511] != 0xAA) {
+            std::cerr << "Invalid MBR signature on: " << disk_path << std::endl;
+            std::cerr << "Got signature: 0x"
+                      << std::hex << static_cast<int>(buffer[511])
+                      << static_cast<int>(buffer[510])
+                      << std::dec << std::endl;
+            return;
+        }
+
+        std::cout << "Disk analysis for: " << disk_path << std::endl;
+        std::cout << "Partition table:" << std::endl;
+
+        bool bootable_found = false;
+        bool is_gpt_protective = false;
+
+        const int partition_table_offset = 0x1BE;
+
+        for (int index = 0; index < 4; ++index) {
+            const int offset = partition_table_offset + index * 16;
+
+            const std::uint8_t status = buffer[offset];
+            const std::uint8_t type = buffer[offset + 4];
+
+            const std::uint32_t lba_start =
+                (static_cast<std::uint32_t>(buffer[offset + 11]) << 24) |
+                (static_cast<std::uint32_t>(buffer[offset + 10]) << 16) |
+                (static_cast<std::uint32_t>(buffer[offset + 9]) << 8) |
+                static_cast<std::uint32_t>(buffer[offset + 8]);
+
+            const std::uint32_t sector_count =
+                (static_cast<std::uint32_t>(buffer[offset + 15]) << 24) |
+                (static_cast<std::uint32_t>(buffer[offset + 14]) << 16) |
+                (static_cast<std::uint32_t>(buffer[offset + 13]) << 8) |
+                static_cast<std::uint32_t>(buffer[offset + 12]);
+
+            std::cout << "Partition " << (index + 1) << ": ";
+
+            if (status == 0x80) {
+                std::cout << "Bootable, ";
+                bootable_found = true;
+            } else if (status == 0x00) {
+                std::cout << "Non-bootable, ";
+            } else {
+                std::cout << "Unknown status (0x"
+                          << std::hex << static_cast<int>(status)
+                          << std::dec << "), ";
+            }
+
+            std::cout << "Type: 0x"
+                      << std::hex << static_cast<int>(type)
+                      << std::dec
+                      << " (" << partition_type_description(type) << ")";
+
+            if (type == 0xEE) {
+                is_gpt_protective = true;
+            }
+
+            if (type != 0x00 && sector_count > 0) {
+                const std::uint64_t size_bytes =
+                    static_cast<std::uint64_t>(sector_count) * 512;
+
+                if (size_bytes >= 1024ull * 1024ull * 1024ull) {
+                    std::cout << ", Size: "
+                              << (size_bytes / (1024.0 * 1024.0 * 1024.0))
+                              << " GB";
+                } else {
+                    std::cout << ", Size: "
+                              << (size_bytes / (1024.0 * 1024.0))
+                              << " MB";
+                }
+
+                std::cout << ", Start LBA: " << lba_start;
+            }
+
+            std::cout << std::endl;
+        }
+
+        if (is_gpt_protective) {
+            std::cout << "This disk uses GPT partitioning (protective MBR detected)" << std::endl;
+        } else {
+            std::cout << "This disk uses MBR partitioning" << std::endl;
+        }
+
+        if (!bootable_found) {
+            std::cout << "No bootable partitions found" << std::endl;
+        }
+    }
+
+private:
+    static std::string partition_type_description(std::uint8_t type) {
+        switch (type) {
+            case 0x00: return "Empty";
+            case 0xEE: return "GPT Protective";
+            case 0xEF: return "EFI System";
+            case 0x07: return "NTFS/HPFS";
+            case 0x0B: return "FAT32 (CHS)";
+            case 0x0C: return "FAT32 (LBA)";
+            case 0x05: return "Extended (CHS)";
+            case 0x0F: return "Extended (LBA)";
+            case 0x82: return "Linux Swap";
+            case 0x83: return "Linux";
+            case 0x8E: return "Linux LVM";
+            default:   return "Unknown";
+        }
+    }
+};
+
 class ShellCommandExecutor {
 public:
     static void execute_debug(const std::string& input) {
@@ -98,6 +226,24 @@ public:
             }
         } else {
             std::cout << "Usage: \\e $VARIABLE" << '\n';
+        }
+    }
+
+    static void analyze_disk_mbr(const std::string& input) {
+        if (input.length() > 3) {
+            std::string device_path = input.substr(3);
+
+            while (!device_path.empty() && device_path.front() == ' ') {
+                device_path.erase(device.begin());
+            }
+
+            if (!device_path.empty()) {
+                PartitionTableAnalyzer::list_partitions_mbr(device_path);
+            } else {
+                std::cout << "Usage: \\l /dev/device" << '\n';
+            }
+        } else {
+            std::cout << "Usage: \\l /dev/device" << '\n';
         }
     }
 
@@ -170,6 +316,8 @@ public:
                 ShellCommandExecutor::execute_debug(input);
             } else if (input.find("\\e") == 0) {
                 ShellCommandExecutor::print_environment_variable(input);
+            } else if (input.find("\\l") == 0) {
+                ShellCommandExecutor::analyze_disk_mbr(input);
             } else {
                 ShellCommandExecutor::execute_external(input);
             }
