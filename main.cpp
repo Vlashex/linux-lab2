@@ -7,12 +7,13 @@
 #include <cstring>
 #include <cstdint>
 #include <cerrno>
-#include <cstdlib>
 
 #include <unistd.h>
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+
+#include "vfs.h"
 
 class ShellSignalManager {
 public:
@@ -234,7 +235,7 @@ public:
             std::string device_path = input.substr(3);
 
             while (!device_path.empty() && device_path.front() == ' ') {
-                device_path.erase(device.begin());
+                device_path.erase(device_path.begin());
             }
 
             if (!device_path.empty()) {
@@ -348,10 +349,12 @@ int main() {
     std::cout << std::unitbuf;
     std::cerr << std::unitbuf;
 
+    initialize_vfs();
     ShellSignalManager::install_sighup_handler();
 
     InteractiveShell shell;
     shell.run();
 
+    cleanup_vfs();
     return 0;
 }
